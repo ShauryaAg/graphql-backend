@@ -1,4 +1,4 @@
-const db = require("../../../firebase/firebase-db");
+const db = require("../../../firebase/firebase-db")
 const auth = require('../../../middleware/graphql/auth')
 
 const { EventType, UserType, CreateUserInputType, CreateEventInputType } = require('./types')
@@ -29,23 +29,23 @@ const RootQuery = new GraphQLObjectType({
             async resolve(parent, args) {
                 const res = await db.collection("events")
                     .doc(args.id)
-                    .get();
-                return res.data();
+                    .get()
+                return { id: res.id, ...res.data() }
             }
         },
         listEvents: {
             type: new GraphQLList(EventType),
             async resolve(parent, args) {
                 const querySnapshot = await db.collection("events")
-                    .get();
-                allEvents = [];
+                    .get()
+                allEvents = []
                 querySnapshot.forEach((doc) => {
                     allEvents.push({
                         id: doc.id,
                         ...doc.data()
-                    });
-                });
-                return allEvents;
+                    })
+                })
+                return allEvents
             }
         },
         userById: {
@@ -56,23 +56,23 @@ const RootQuery = new GraphQLObjectType({
             async resolve(parent, args) {
                 const res = await db.collection("users")
                     .doc(args.id)
-                    .get();
-                return res.data();
+                    .get()
+                return { id: res.id, ...res.data() }
             }
         },
         listUsers: {
             type: new GraphQLList(UserType),
             async resolve(parent, args) {
                 const querySnapshot = await db.collection("users")
-                    .get();
-                allUsers = [];
+                    .get()
+                allUsers = []
                 querySnapshot.forEach((doc) => {
                     allUsers.push({
                         id: doc.id,
                         ...doc.data()
-                    });
-                });
-                return allUsers;
+                    })
+                })
+                return allUsers
             }
         },
     }
@@ -81,6 +81,68 @@ const RootQuery = new GraphQLObjectType({
 const Mutation = new GraphQLObjectType({
     name: 'Mutation',
     fields: {
+        createUser: {
+            type: UserType,
+            args: {
+                input: { type: new GraphQLNonNull(CreateUserInputType) },
+            },
+            async resolve(parent, args, req) {
+                const newUserRef = db.collection("users").doc()
+                await newUserRef.set(args.input)
+                const newUser = await newUserRef.get()
+
+                return { id: newUser.id, ...newUser.data() }
+            }
+        },
+        updateUser: {
+            type: UserType,
+            args: {
+                id: { type: GraphQLID },
+                input: { type: new GraphQLNonNull(CreateUserInputType) },
+            },
+            async resolve(parent, args, req) {
+                await auth(req)
+
+                let userRef = await db.collection("users").doc(args.id)
+                let user = await userRef.get()
+
+                //check if user exists
+                if (user.exists) {
+                    if (user.data().creator == req.decoded) {
+                        await userRef.update(args._set)
+                        user = await userRef.get()
+                        return { id: user.id, ...user.data() }
+                    }
+                } else {
+                    //can't update
+                    throw new Error("can't update user")
+                }
+            }
+        },
+        deleteUser: {
+            type: UserType,
+            args: {
+                id: { type: GraphQLID }
+            },
+            async resolve(parent, args, req) {
+                await auth(req)
+
+                let userRef = await db.collection("users").doc(args.id)
+                let user = await userRef.get()
+
+                //check if user exists
+                if (user.exists) {
+                    if (user.data().creator == req.decoded) {
+                        await userRef.update(args._set)
+                        user = await userRef.get()
+                        return { id: user.id, ...user.data() }
+                    }
+                } else {
+                    //can't update
+                    throw new Error("can't update user")
+                }
+            }
+        },
         createEvent: {
             type: EventType,
             args: {
@@ -89,20 +151,12 @@ const Mutation = new GraphQLObjectType({
             async resolve(parent, args, req) {
                 // await auth(req)
 
-                const eventData = {
-                    title: args.input.title,
-                    price: args.input.price,
-                    date: args.input.date,
-                    image: args.input.image ?? null,
-                    creator: req.decoded ?? null
-                }
+                const newEventRef = db.collection("events").doc()
+                await newEventRef.set(args.input)
 
-                const newEventRef = db.collection("events").doc();
-                await newEventRef.set(eventData);
+                const newEvent = await newEventRef.get()
 
-                const newEvent = await newEventRef.get();
-
-                // const userRef = db.collection("users").doc(req.decoded);
+                // const userRef = db.collection("users").doc(req.decoded)
                 // userRef.set({
                 //     events: [`/events/${newEvent.id}`]
                 // }, { merge: true })
@@ -113,26 +167,26 @@ const Mutation = new GraphQLObjectType({
         updateEvent: {
             type: EventType,
             args: {
-                id: { type: GraphQLNonNull(GraphQLID) },
+                id: { type: new GraphQLNonNull(GraphQLID) },
                 _set: { type: new GraphQLNonNull(CreateEventInputType) },
             },
             async resolve(parent, args, req) {
                 // await auth(req)
 
-                let eventRef = await db.collection("events").doc(args.id).get();
-                let event = await eventRef.get();
+                let eventRef = await db.collection("events").doc(args.id)
+                let event = await eventRef.get()
 
                 //check if event exists
                 if (event.exists) {
                     //check if current user is the creator
-                    if (event.data().creator == req.decoded) {
-                        await eventRef.update(args._set);
-                        event = await eventRef.get();
-                        return { id: event.id, ...event.data() }
-                    }
+                    // if (event.data().creator == req.decoded) {
+                    await eventRef.update(args._set)
+                    event = await eventRef.get()
+                    return { id: event.id, ...event.data() }
+                    // }
                 } else {
                     //can't update
-                    throw new Error("can't update event");
+                    throw new Error("can't update event")
                 }
             }
         },
@@ -144,28 +198,20 @@ const Mutation = new GraphQLObjectType({
             async resolve(parent, args, req) {
                 await auth(req)
 
-                let eventId = args.id
-                let eventRef = await db.collection("events").doc(eventId);
-                let event = await eventRef.get();
-
-                let userId
-                try {
-                    userId = req.headers.authorization.split('Bearer ')[1]
-                } catch (err) {
-                    console.log(`User not set Error: ${err}`)
-                }
+                let eventRef = await db.collection("events").doc(args.id)
+                let event = await eventRef.get()
 
                 //check if event exists
                 if (event.exists) {
                     //check if current user is the creator
-                    if (event.data().creator == userId) {
-                        await eventRef.delete();
-                        event = await eventRef.get();
-                        return event.data()
+                    if (event.data().creator == req.decoded) {
+                        await eventRef.delete()
+                        event = await eventRef.get()
+                        return { id: event.id, ...event.data() }
                     }
                 } else {
-                    //can't update
-                    throw new Error("can't update event");
+                    //can't delete
+                    throw new Error("can't update event")
                 }
             }
         }
@@ -175,4 +221,4 @@ const Mutation = new GraphQLObjectType({
 module.exports = new GraphQLSchema({
     query: RootQuery,
     mutation: Mutation
-});
+})

@@ -42,7 +42,8 @@ const CreateUserInputType = new GraphQLInputObjectType({
         name: { type: GraphQLString },
         bio: { type: GraphQLString },
         profileImage: { type: GraphQLString },
-        coverImage: { type: GraphQLString }
+        coverImage: { type: GraphQLString },
+        events: { type: GraphQLList(GraphQLID) }
     })
 })
 
@@ -54,7 +55,8 @@ const CreateEventInputType = new GraphQLInputObjectType({
         title: { type: GraphQLString },
         price: { type: GraphQLInt },
         date: { type: GraphQLString },
-        image: { type: GraphQLString }
+        image: { type: GraphQLString },
+        users: { type: GraphQLList(GraphQLID) }
     })
 })
 
