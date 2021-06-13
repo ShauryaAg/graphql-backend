@@ -1,3 +1,5 @@
+const firebase = require('firebase-admin')
+
 const db = require("../../../firebase/firebase-db")
 const auth = require('../../../middleware/graphql/auth')
 
@@ -156,12 +158,30 @@ const Mutation = new GraphQLObjectType({
 
                 const newEvent = await newEventRef.get()
 
-                // const userRef = db.collection("users").doc(req.decoded)
-                // userRef.set({
-                //     events: [`/events/${newEvent.id}`]
-                // }, { merge: true })
+                await args.input.users.forEach(async userId => {
+                    userRef = await db.collection("users").doc(userId)
+                    user = await userRef.get()
+                    if (user.exists) {
+                        await newEventRef.set({
+                            users: firebase.firestore.FieldValue.arrayUnion(userRef)
+                        }, { merge: true })
+                    }
+                })
 
-                return { id: newEvent.id, ...newEvent.data() }
+                let allUsers = []
+                await newEvent.data().users.forEach(async userId => {
+                    user = await db.collection("users").doc(userId).get()
+                    console.log(user)
+                    allUsers.push({
+                        id: user.id,
+                        ...user.data()
+                    })
+                    console.log(allUsers)
+                })
+
+                console.log(allUsers)
+
+                return { id: newEvent.id, ...newEvent.data(), users: allUsers }
             }
         },
         updateEvent: {
@@ -178,12 +198,20 @@ const Mutation = new GraphQLObjectType({
 
                 //check if event exists
                 if (event.exists) {
-                    //check if current user is the creator
-                    // if (event.data().creator == req.decoded) {
                     await eventRef.update(args._set)
+
+                    args._set.users.forEach(async userId => {
+                        userRef = await db.collection("users").doc(userId)
+                        user = await userRef.get()
+                        if (user.exists) {
+                            eventRef.update({
+                                users: [userRef]
+                            }, { merge: true })
+                        }
+                    })
+
                     event = await eventRef.get()
                     return { id: event.id, ...event.data() }
-                    // }
                 } else {
                     //can't update
                     throw new Error("can't update event")
