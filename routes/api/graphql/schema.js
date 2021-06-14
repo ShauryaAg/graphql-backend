@@ -1,5 +1,3 @@
-const firebase = require('firebase-admin')
-
 const db = require("../../../firebase/firebase-db")
 const auth = require('../../../middleware/graphql/auth')
 
@@ -8,15 +6,11 @@ const { EventType, UserType, CreateUserInputType, CreateEventInputType } = requi
 const {
     GraphQLObjectType,
     GraphQLID,
-    GraphQLInt,
-    GraphQLString,
-    GraphQLBoolean,
     GraphQLList,
     GraphQLSchema,
     GraphQLNonNull,
-    GraphQLScalarType,
-    GraphQLInputObjectType,
 } = require('graphql')
+const handlers = require('../../../handlers')
 
 
 const RootQuery = new GraphQLObjectType({
@@ -27,64 +21,22 @@ const RootQuery = new GraphQLObjectType({
             args: {
                 id: { type: GraphQLID }
             },
-            async resolve(parent, args) {
-                const doc = await db.collection("events")
-                    .doc(args.id)
-                    .get()
-
-                let eventUsers = await Promise.all(doc.data().users.map(async userId => {
-                    user = await db.doc(`users/${userId}`).get()
-                    return { id: user.id, ...user.data() }
-                }))
-
-                return { id: doc.id, ...doc.data(), users: eventUsers }
-            }
+            async resolve(parent, args) { return handlers.getEventById(parent, args) }
         },
         listEvents: {
             type: new GraphQLList(EventType),
-            async resolve(parent, args) {
-
-                const querySnapshot = await db.collection("events").get()
-                allEvents = await Promise.all(
-                    querySnapshot.docs.map(async (doc) => {
-                        let eventUsers = await Promise.all(doc.data().users.map(async userId => {
-                            user = await db.doc(`users/${userId}`).get()
-                            return { id: user.id, ...user.data() }
-                        }))
-
-                        return { id: doc.id, ...doc.data(), users: eventUsers }
-                    })
-                )
-
-                return allEvents
-            }
+            async resolve(parent, args) { return handlers.getEvents(parent, args, req) }
         },
         userById: {
             type: UserType,
             args: {
                 id: { type: GraphQLID }
             },
-            async resolve(parent, args) {
-                const res = await db.collection("users")
-                    .doc(args.id)
-                    .get()
-                return { id: res.id, ...res.data() }
-            }
+            async resolve(parent, args) { return handlers.getUserById(parent, args, req) }
         },
         listUsers: {
             type: new GraphQLList(UserType),
-            async resolve(parent, args) {
-                const querySnapshot = await db.collection("users")
-                    .get()
-                allUsers = []
-                querySnapshot.forEach((doc) => {
-                    allUsers.push({
-                        id: doc.id,
-                        ...doc.data()
-                    })
-                })
-                return allUsers
-            }
+            async resolve(parent, args) { return handlers.getUsers(parent, args, req) }
         },
     }
 })
@@ -97,13 +49,7 @@ const Mutation = new GraphQLObjectType({
             args: {
                 input: { type: new GraphQLNonNull(CreateUserInputType) },
             },
-            async resolve(parent, args, req) {
-                const newUserRef = db.collection("users").doc()
-                await newUserRef.set(args.input)
-                const newUser = await newUserRef.get()
-
-                return { id: newUser.id, ...newUser.data() }
-            }
+            async resolve(parent, args, req) { return handlers.createUser(parent, args, req) }
         },
         updateUser: {
             type: UserType,
@@ -111,78 +57,21 @@ const Mutation = new GraphQLObjectType({
                 id: { type: GraphQLID },
                 _set: { type: new GraphQLNonNull(CreateUserInputType) },
             },
-            async resolve(parent, args, req) {
-                await auth(req)
-
-                let userRef = await db.collection("users").doc(args.id)
-                let user = await userRef.get()
-
-                //check if user exists
-                if (user.exists) {
-                    if (user.data().creator == req.decoded) {
-                        await userRef.update(args._set)
-                        user = await userRef.get()
-                        return { id: user.id, ...user.data() }
-                    }
-                } else {
-                    //can't update
-                    throw new Error("can't update user")
-                }
-            }
+            async resolve(parent, args, req) { return handlers.updateUser(parent, args, req) }
         },
         deleteUser: {
             type: UserType,
             args: {
                 id: { type: GraphQLID }
             },
-            async resolve(parent, args, req) {
-                await auth(req)
-
-                let userRef = await db.collection("users").doc(args.id)
-                let user = await userRef.get()
-
-                //check if user exists
-                if (user.exists) {
-                    if (user.data().creator == req.decoded) {
-                        await userRef.delete()
-                        user = await userRef.get()
-                        return { id: user.id, ...user.data() }
-                    }
-                } else {
-                    //can't delete
-                    throw new Error("can't delete user")
-                }
-            }
+            async resolve(parent, args, req) { return handlers.deleteUser(parent, args, req) }
         },
         createEvent: {
             type: EventType,
             args: {
                 input: { type: new GraphQLNonNull(CreateEventInputType) },
             },
-            async resolve(parent, args, req) {
-                // await auth(req)
-
-                const newEventRef = db.collection("events").doc()
-                await newEventRef.set(args.input)
-
-                const newEvent = await newEventRef.get()
-
-                await args.input.users.forEach(async userId => {
-                    user = await db.collection("users").doc(userId).get()
-                    if (user.exists) {
-                        await newEventRef.set({
-                            users: firebase.firestore.FieldValue.arrayUnion(user.id)
-                        }, { merge: true })
-                    }
-                })
-
-                let eventUsers = await Promise.all(newEvent.data().users.map(async userId => {
-                    user = await db.doc(`users/${userId}`).get()
-                    return { id: user.id, ...user.data() }
-                }))
-
-                return { id: newEvent.id, ...newEvent.data(), users: eventUsers }
-            }
+            async resolve(parent, args, req) { return handlers.createEvent(parent, args, req) }
         },
         updateEvent: {
             type: EventType,
@@ -190,61 +79,14 @@ const Mutation = new GraphQLObjectType({
                 id: { type: new GraphQLNonNull(GraphQLID) },
                 _set: { type: new GraphQLNonNull(CreateEventInputType) },
             },
-            async resolve(parent, args, req) {
-                // await auth(req)
-
-                let eventRef = await db.collection("events").doc(args.id)
-                let event = await eventRef.get()
-
-                //check if event exists
-                if (event.exists) {
-                    await eventRef.update(args._set)
-
-                    await args._set.users.forEach(async userId => {
-                        user = await db.collection("users").doc(userId).get()
-                        if (user.exists) {
-                            await newEventRef.set({
-                                users: firebase.firestore.FieldValue.arrayUnion(user.id)
-                            }, { merge: true })
-                        }
-                    })
-
-                    let eventUsers = await Promise.all(event.data().users.map(async userId => {
-                        user = await db.doc(`users/${userId}`).get()
-                        return { id: user.id, ...user.data() }
-                    }))
-
-                    return { id: event.id, ...event.data(), users: eventUsers }
-                } else {
-                    //can't update
-                    throw new Error("can't update event")
-                }
-            }
+            async resolve(parent, args, req) { return handlers.updateEvent(parent, args, req) }
         },
         deleteEvent: {
             type: EventType,
             args: {
                 id: { type: GraphQLID }
             },
-            async resolve(parent, args, req) {
-                await auth(req)
-
-                let eventRef = await db.collection("events").doc(args.id)
-                let event = await eventRef.get()
-
-                //check if event exists
-                if (event.exists) {
-                    //check if current user is the creator
-                    if (event.data().creator == req.decoded) {
-                        await eventRef.delete()
-                        event = await eventRef.get()
-                        return { id: event.id, ...event.data() }
-                    }
-                } else {
-                    //can't delete
-                    throw new Error("can't update event")
-                }
-            }
+            async resolve(parent, args, req) { return handlers.deleteEvent(parent, args, req) }
         }
     }
 })
