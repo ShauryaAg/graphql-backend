@@ -38,15 +38,19 @@ const RootQuery = new GraphQLObjectType({
         listEvents: {
             type: new GraphQLList(EventType),
             async resolve(parent, args) {
-                const querySnapshot = await db.collection("events")
-                    .get()
-                allEvents = []
-                querySnapshot.forEach((doc) => {
-                    allEvents.push({
-                        id: doc.id,
-                        ...doc.data()
+
+                const querySnapshot = await db.collection("events").get()
+                allEvents = await Promise.all(
+                    querySnapshot.docs.map(async (doc) => {
+                        let eventUsers = await Promise.all(doc.data().users.map(async userId => {
+                            user = await db.doc(`users/${userId}`).get()
+                            return { id: user.id, ...user.data() }
+                        }))
+
+                        return { id: doc.id, ...doc.data(), users: eventUsers }
                     })
-                })
+                )
+
                 return allEvents
             }
         },
@@ -100,7 +104,7 @@ const Mutation = new GraphQLObjectType({
             type: UserType,
             args: {
                 id: { type: GraphQLID },
-                input: { type: new GraphQLNonNull(CreateUserInputType) },
+                _set: { type: new GraphQLNonNull(CreateUserInputType) },
             },
             async resolve(parent, args, req) {
                 await auth(req)
@@ -135,13 +139,13 @@ const Mutation = new GraphQLObjectType({
                 //check if user exists
                 if (user.exists) {
                     if (user.data().creator == req.decoded) {
-                        await userRef.update(args._set)
+                        await userRef.delete()
                         user = await userRef.get()
                         return { id: user.id, ...user.data() }
                     }
                 } else {
-                    //can't update
-                    throw new Error("can't update user")
+                    //can't delete
+                    throw new Error("can't delete user")
                 }
             }
         },
@@ -168,20 +172,13 @@ const Mutation = new GraphQLObjectType({
                     }
                 })
 
-                let allUsers = []
-                await newEvent.data().users.forEach(async userId => {
-                    user = await db.collection("users").doc(userId).get()
-                    console.log(user)
-                    allUsers.push({
-                        id: user.id,
-                        ...user.data()
-                    })
-                    console.log(allUsers)
-                })
 
-                console.log(allUsers)
+                let eventUsers = await Promise.all(newEvent.data().users.map(async userId => {
+                    user = await db.doc(`users/${userId}`).get()
+                    return { id: user.id, ...user.data() }
+                }))
 
-                return { id: newEvent.id, ...newEvent.data(), users: allUsers }
+                return { id: newEvent.id, ...newEvent.data(), users: eventUsers }
             }
         },
         updateEvent: {
@@ -200,18 +197,19 @@ const Mutation = new GraphQLObjectType({
                 if (event.exists) {
                     await eventRef.update(args._set)
 
-                    args._set.users.forEach(async userId => {
-                        userRef = await db.collection("users").doc(userId)
-                        user = await userRef.get()
-                        if (user.exists) {
-                            eventRef.update({
-                                users: [userRef]
-                            }, { merge: true })
-                        }
+                    await args._set.users.map(async userId => {
+                        userRef = await db.doc(`users/${userId}`)
+                        await eventRef.update({
+                            users: firebase.firestore.FieldValue.arrayUnion(userRef)
+                        }, { merge: true })
                     })
 
-                    event = await eventRef.get()
-                    return { id: event.id, ...event.data() }
+                    let eventUsers = await Promise.all(event.data().users.map(async userId => {
+                        user = await db.doc(`users/${userId}`).get()
+                        return { id: user.id, ...user.data() }
+                    }))
+
+                    return { id: event.id, ...event.data(), users: eventUsers }
                 } else {
                     //can't update
                     throw new Error("can't update event")
