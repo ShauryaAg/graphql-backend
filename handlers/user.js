@@ -39,7 +39,21 @@ exports.createUser = async (parent, args, req) => {
     await newUserRef.set(args.input)
     const newUser = await newUserRef.get()
 
-    return { id: newUser.id, ...newUser.data() }
+    await args.input.events.forEach(async eventId => {
+        let event = await db.collection("users").doc(eventId).get()
+        if (event.exists) {
+            await newUserRef.set({
+                event: firebase.firestore.FieldValue.arrayUnion(event.id)
+            }, { merge: true })
+        }
+    })
+
+    let userEvents = await Promise.all(newUser.data().users.map(async eventId => {
+        let event = await db.doc(`events/${eventId}`).get()
+        return { id: event.id, ...event.data() }
+    }))
+
+    return { id: newUser.id, ...newUser.data(), users: userEvents }
 }
 
 exports.updateUser = async (parent, args, req) => {
@@ -52,8 +66,22 @@ exports.updateUser = async (parent, args, req) => {
     if (user.exists) {
         if (user.data().creator == req.decoded) {
             await userRef.update(args._set)
-            user = await userRef.get()
-            return { id: user.id, ...user.data() }
+
+            await args._set.events.forEach(async eventId => {
+                let event = await db.collection("events").doc(eventId).get()
+                if (event.exists) {
+                    await eventRef.set({
+                        events: firebase.firestore.FieldValue.arrayUnion(event.id)
+                    }, { merge: true })
+                }
+            })
+
+            let userEvents = await Promise.all(user.data().events.map(async eventId => {
+                let event = await db.doc(`events/${eventId}`).get()
+                return { id: event.id, ...event.data() }
+            }))
+
+            return { id: user.id, ...user.data(), events: userEvents }
         }
     } else {
         //can't update

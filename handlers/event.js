@@ -68,7 +68,7 @@ exports.updateEvent = async (parent, args, req) => {
         await args._set.users.forEach(async userId => {
             user = await db.collection("users").doc(userId).get()
             if (user.exists) {
-                await newEventRef.set({
+                await eventRef.set({
                     users: firebase.firestore.FieldValue.arrayUnion(user.id)
                 }, { merge: true })
             }
