@@ -15,5 +15,5 @@ The API has a many-to-many relation between User and Event, with reference to ea
 
 > > Things that couldn't be done due to time constraint. I could only start last night to work on this after confirming with the team if submitting a GraphQL API would be alright.
 
-- [] Add proper authentication for user
-- [] Add frontend in Next.js
+- [ ] Add proper authentication for user
+- [ ] Add frontend in Next.js
