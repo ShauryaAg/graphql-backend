@@ -19,7 +19,6 @@ const {
 } = require('graphql')
 
 
-
 const RootQuery = new GraphQLObjectType({
     name: 'RootQuery',
     fields: {
@@ -29,10 +28,16 @@ const RootQuery = new GraphQLObjectType({
                 id: { type: GraphQLID }
             },
             async resolve(parent, args) {
-                const res = await db.collection("events")
+                const doc = await db.collection("events")
                     .doc(args.id)
                     .get()
-                return { id: res.id, ...res.data() }
+
+                let eventUsers = await Promise.all(doc.data().users.map(async userId => {
+                    user = await db.doc(`users/${userId}`).get()
+                    return { id: user.id, ...user.data() }
+                }))
+
+                return { id: doc.id, ...doc.data(), users: eventUsers }
             }
         },
         listEvents: {
@@ -163,15 +168,13 @@ const Mutation = new GraphQLObjectType({
                 const newEvent = await newEventRef.get()
 
                 await args.input.users.forEach(async userId => {
-                    userRef = await db.collection("users").doc(userId)
-                    user = await userRef.get()
+                    user = await db.collection("users").doc(userId).get()
                     if (user.exists) {
                         await newEventRef.set({
-                            users: firebase.firestore.FieldValue.arrayUnion(userRef)
+                            users: firebase.firestore.FieldValue.arrayUnion(user.id)
                         }, { merge: true })
                     }
                 })
-
 
                 let eventUsers = await Promise.all(newEvent.data().users.map(async userId => {
                     user = await db.doc(`users/${userId}`).get()
@@ -197,11 +200,13 @@ const Mutation = new GraphQLObjectType({
                 if (event.exists) {
                     await eventRef.update(args._set)
 
-                    await args._set.users.map(async userId => {
-                        userRef = await db.doc(`users/${userId}`)
-                        await eventRef.update({
-                            users: firebase.firestore.FieldValue.arrayUnion(userRef)
-                        }, { merge: true })
+                    await args._set.users.forEach(async userId => {
+                        user = await db.collection("users").doc(userId).get()
+                        if (user.exists) {
+                            await newEventRef.set({
+                                users: firebase.firestore.FieldValue.arrayUnion(user.id)
+                            }, { merge: true })
+                        }
                     })
 
                     let eventUsers = await Promise.all(event.data().users.map(async userId => {
