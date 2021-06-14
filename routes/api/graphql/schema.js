@@ -1,17 +1,14 @@
-const db = require("../../../firebase/firebase-db")
-const auth = require('../../../middleware/graphql/auth')
-
-const { EventType, UserType, CreateUserInputType, CreateEventInputType } = require('./types')
-
 const {
-    GraphQLObjectType,
     GraphQLID,
     GraphQLList,
     GraphQLSchema,
     GraphQLNonNull,
+    GraphQLObjectType,
 } = require('graphql')
-const handlers = require('../../../handlers')
 
+const handlers = require('../../../handlers')
+const { EventType, UserType,
+    CreateUserInputType, CreateEventInputType } = require('./types')
 
 const RootQuery = new GraphQLObjectType({
     name: 'RootQuery',
